@@ -15,7 +15,7 @@ Sem o Claude: `npm run upgrade` e `npm run upgrade:claude-md -- --dry-run | --ap
 Convenção: **patch** (0.3.x) não tem passo de upgrade e não gera pergunta; o código vale no
 `git pull`. **Minor** (0.x.0) pode ter migração e dispara a pergunta de atualização.
 
-## 0.3.5 (2026-10-15)
+## 0.4.0 (2026-10-15)
 
 Epic como ponte entre repos: regra escrita no back passa a aparecer no front (e vice-versa)
 quando as duas tasks são filhas do mesmo epic. Nada acessa o Jira: a hierarquia vem do que já
@@ -52,8 +52,10 @@ está na memória.
 - **Bench novo** `npm run bench:epic-cross`. `bench:recall` passa o caller do caso, então o kin e o
   boost por epic passam a ser medidos no A/B.
 
-Sem passo de upgrade: o hook roda o vínculo sozinho. O primer pergunta se aplica o bloco novo do
-CLAUDE.md (linha `[task]` e `recall_task` no fluxo de análise).
+Minor: o primer pergunta "atualizar agora". O `npm run upgrade` ganha o passo 6/7, que roda
+`build:entities` e `link:epics --no-llm` na hora (sem esperar chunk novo), e em seguida o Claude
+mostra o diff do bloco v4 do CLAUDE.md (linha `[task]` e `recall_task` no fluxo de análise). A parte
+do vínculo com Haiku segue o opt-in da distilação.
 
 ## 0.3.4 (2026-10-07)
 

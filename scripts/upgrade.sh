@@ -59,7 +59,7 @@ REPO_VERSION="$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' 
 FROM="$(cat "$STAMP" 2>/dev/null || echo 'desconhecida')"
 echo "mcp-talks-cc: instalada ${FROM} -> repo ${REPO_VERSION}"
 
-step "1/6 dependências"
+step "1/7 dependências"
 # package-lock mais novo que o último install = dependência mudou
 if [ ! -d node_modules ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then
   npm install
@@ -67,17 +67,17 @@ else
   echo "  sem mudança de dependência, pulando."
 fi
 
-step "2/6 Neo4j"
+step "2/7 Neo4j"
 npm run infra:up
 
-step "3/6 schema (constraints e índices novos, IF NOT EXISTS)"
+step "3/7 schema (constraints e índices novos, IF NOT EXISTS)"
 npm run db:init
 
-step "4/6 hooks do Claude Code (merge sem sobrescrever, backup em settings.json.bak)"
+step "4/7 hooks do Claude Code (merge sem sobrescrever, backup em settings.json.bak)"
 node scripts/install-hook.mjs
 chmod +x scripts/*.sh
 
-step "5/6 calibração de confidence"
+step "5/7 calibração de confidence"
 # Sem calibração pronta, search_memory devolve conf n/a e o push não dispara.
 READY="$(sed -nE 's/.*"ready":[[:space:]]*(true|false).*/\1/p' "${CACHE}/score-calibration.json" 2>/dev/null | head -1)"
 if [ "$READY" = "true" ]; then
@@ -86,7 +86,12 @@ else
   npm run calibrate:probe
 fi
 
-step "6/6 carimbo de versão"
+step "6/7 entidades e vínculo task -> epic (sem LLM, segundos)"
+# Idempotente. No hook isso só roda quando entra chunk novo; aqui garante que a
+# instalação atualizada já sai com Task/File, PART_OF e o primer por epic.
+npm run build:entities -- --apply || echo "  build:entities falhou (o hook tenta de novo)"
+npm run link:epics -- --apply --no-llm || echo "  link:epics falhou (o hook tenta de novo)"
+step "7/7 carimbo de versão"
 echo "$REPO_VERSION" > "$STAMP"
 echo "  instalada agora: ${REPO_VERSION}"
 
