@@ -12,7 +12,9 @@ export function registerStatsResource(server: McpServer): void {
     async () => {
       const counts = await withSession(async (s) => {
         const r = await s.run(
-          `MATCH (n) RETURN labels(n)[0] AS label, count(*) AS c ORDER BY label`,
+          // UNWIND, não labels(n)[0]: nó com 2 labels (:Task:Epic, :Todo:Orphan) tem
+          // ordem de label não garantida e caía em qualquer um dos dois.
+          `MATCH (n) UNWIND labels(n) AS label RETURN label, count(*) AS c ORDER BY label`,
         );
         return r.records.map((rec) => ({ label: rec.get('label'), count: rec.get('c') }));
       });

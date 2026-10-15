@@ -425,6 +425,12 @@ export async function searchMemory(args: {
   until?: string;
   excludeSessions?: string[];
   /**
+   * Só uso interno (bench). Sessão "de onde" a busca parte, no lugar da que o
+   * processo resolve sozinho. Sem isto o kin e o boost por epic dependem do
+   * caller real, que no bench é nenhum, e o A/B mede sempre boost neutro.
+   */
+  callerSessionId?: string | null;
+  /**
    * Caminho do hook de push: pool menor, sem retry fundo, sem kin. Precisa
    * caber no orçamento de latência de um hook que roda a cada prompt.
    */
@@ -743,7 +749,9 @@ export async function searchMemory(args: {
     candidates.forEach((c, i) => relMap.set(c.id, relNorm[i] ?? 0));
 
     const kin =
-      !args.fast && tuning.entityBoost > 1 ? await kinSessions(s, resolveCallerSession().sessionId) : new Set<string>();
+      !args.fast && tuning.entityBoost > 1
+        ? await kinSessions(s, args.callerSessionId !== undefined ? args.callerSessionId : resolveCallerSession().sessionId)
+        : new Set<string>();
 
     const picked = mmrSelect(
       candidates,

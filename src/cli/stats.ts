@@ -3,8 +3,8 @@ import { closeDriver } from '../neo4j/driver.ts';
 
 const QUERY = `
 CALL () {
-  MATCH (n)
-  WITH labels(n)[0] AS label, count(*) AS c
+  MATCH (n) UNWIND labels(n) AS label
+  WITH label, count(*) AS c
   RETURN label, c ORDER BY label
 }
 RETURN collect({label: label, count: c}) AS counts

@@ -51,6 +51,15 @@ export function taskKeyFromBranch(branch: string | null | undefined): string | n
   return m ? `${m[1]!.toUpperCase()}-${Number(m[2])}` : null;
 }
 
+/**
+ * Código em identificador que não é prosa: slug de plano, nome de pasta de
+ * task memory. Mesma regra da branch (qualquer posição, minúscula ok), porque é
+ * o mesmo tipo de string. Vive aqui pra não haver uma terceira cópia do regex.
+ */
+export function taskKeyFromSlug(slug: string | null | undefined): string | null {
+  return taskKeyFromBranch(slug);
+}
+
 /** Códigos citados no texto, para referência cruzada entre tasks. */
 export function taskKeysFromText(text: string): string[] {
   TEXT_RE.lastIndex = 0;

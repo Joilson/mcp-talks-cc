@@ -3,6 +3,7 @@ import type { Session } from 'neo4j-driver';
 import { withSession, closeDriver } from '../neo4j/driver.ts';
 import {
   taskKeyFromBranch,
+  taskKeyFromSlug,
   taskKeysFromText,
   normalizeFilePath,
   filePathFromSnippet,
@@ -204,9 +205,8 @@ async function plans(s: Session): Promise<void> {
     RETURN pl.path AS path, pl.slug AS slug`);
   const bySlug = rest.records
     .map((r) => {
-      const slug = (r.get('slug') as string) ?? '';
-      const m = /\b(edc|us|dev|qual)-(\d{2,6})\b/i.exec(slug);
-      return m ? { path: r.get('path') as string, key: `${m[1]!.toUpperCase()}-${Number(m[2])}` } : null;
+      const key = taskKeyFromSlug(r.get('slug') as string);
+      return key ? { path: r.get('path') as string, key } : null;
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
   log(`  [plans] ${bySlug.length} planos restantes ligados por código no slug`);
@@ -214,6 +214,28 @@ async function plans(s: Session): Promise<void> {
     MATCH (pl:Plan { path: r.path })
     MERGE (t:Task { key: r.key }) ON CREATE SET t.prefix = split(r.key, '-')[0]
     MERGE (pl)-[:ABOUT_TASK]->(t)`, { rows: bySlug });
+}
+
+/**
+ * Passo 7: task memory (`<repo>/.claude/tasks/EDC-1234/*.md`) ligada à Task.
+ * Sem isto o doc só era alcançável por vetor/BM25: `find_decisions` e o
+ * resolvedor de task da busca não o enxergavam. O nome da pasta passa pela
+ * mesma normalização da branch, então `EDC-0123` e `EDC-123` caem no mesmo nó.
+ */
+async function taskMemory(s: Session): Promise<void> {
+  const r = await s.run(`MATCH (d:TaskMemoryDoc) RETURN d.path AS path, d.taskId AS taskId`);
+  const rows = r.records
+    .map((rec) => {
+      const key = taskKeyFromSlug(rec.get('taskId') as string);
+      return key ? { path: rec.get('path') as string, key } : null;
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+  log(`  [task-memory] ${rows.length}/${r.records.length} docs ligados a task`);
+  if (!apply || rows.length === 0) return;
+  await s.run(`UNWIND $rows AS r
+    MATCH (d:TaskMemoryDoc { path: r.path })
+    MERGE (t:Task { key: r.key }) ON CREATE SET t.prefix = split(r.key, '-')[0]
+    MERGE (d)-[:ABOUT_TASK]->(t)`, { rows });
 }
 
 /** Passo 6: os 72 Todos são fósseis de 3 sessões que não existem. Relabela. */
@@ -234,6 +256,7 @@ await withSession(async (s) => {
   if (run('aggregates')) await aggregates(s);
   if (run('plans')) await plans(s);
   if (run('todos')) await todos(s);
+  if (run('task-memory')) await taskMemory(s);
   log(`\n${((Date.now() - t0) / 1000).toFixed(1)}s`);
 });
 await closeDriver();

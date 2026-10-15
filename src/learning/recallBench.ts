@@ -85,6 +85,7 @@ export async function runRecallBench(
       k: K,
       until: c.ts,
       excludeSessions: c.callerSession ? [c.callerSession] : [],
+      callerSessionId: c.callerSession,
       ...(c.project ? { project: c.project } : {}),
       ...(opts.scope ? { scope: opts.scope } : {}),
     });
