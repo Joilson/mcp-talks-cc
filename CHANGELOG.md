@@ -45,6 +45,10 @@ está na memória.
 - **Base**: `taskKeyFromSlug` centraliza o regex de slug; TaskMemoryDoc ganha `ABOUT_TASK`; stats
   contam todo label; `memory://schema` documenta Decision, Epic, PART_OF e RELATES; chamada
   `claude -p` do distill extraída pra `src/distill/headless.ts`.
+- **Kin ligado** (`entityBoost` 1 -> 1.35): boost das sessões irmãs (mesma task ou arquivo escrito
+  em comum) estava morto desde que entrou. Medido no `bench:recall` (39 casos, contra a main):
+  r@3 73.0% -> 75.7%, MRR 0.675 -> 0.684, ruído igual (10.9%). Boost por epic sozinho empata com
+  a main no mesmo bench (não piora a busca geral).
 - **Bench novo** `npm run bench:epic-cross`. `bench:recall` passa o caller do caso, então o kin e o
   boost por epic passam a ser medidos no A/B.
 

@@ -130,7 +130,10 @@ export const DEFAULT_TUNING: Tuning = {
   // tuning.json. Isso é o kill switch — voltar pra 1 desliga tudo em <=60s,
   // sem deploy e sem reclassificar, porque os rótulos ficam no grafo.
   valueDemote: 1,
-  entityBoost: 1,
+  // Sessões irmãs (mesma task / arquivo escrito em comum). Ficou em 1 (morto)
+  // até o bench:recall passar o caller do caso; medido em 2026-10-15 (39
+  // casos): 1.0 -> 1.35 dá r@3 73.0% -> 75.7%, MRR 0.675 -> 0.684, ruído igual.
+  entityBoost: 1.35,
   k: 8,
 };
 
