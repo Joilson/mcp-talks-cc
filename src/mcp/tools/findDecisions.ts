@@ -4,6 +4,8 @@ import { withSession } from '../../neo4j/driver.ts';
 import { toToolError } from '../../domain/errors.ts';
 import { day, fmtConf, projectName, shortId, withStructured } from '../output.ts';
 import { searchMemory } from './searchMemory.ts';
+import { decisionsOfFamily } from '../../epics/family.ts';
+import { taskKeyFromSlug } from '../../ingest/entities.ts';
 
 /**
  * Decisões, regras e gotchas destilados (nós Decision, src/distill/).
@@ -19,7 +21,9 @@ const inputSchema = {
   taskId: z
     .string()
     .optional()
-    .describe('ABC-1234. When set, lists every distilled decision of that task (query only ranks).'),
+    .describe(
+      'ABC-1234. When set, lists the distilled decisions of that task AND of its sibling tasks under the same epic (often in another repo: back rule that affects the front), plus the epic itself.',
+    ),
   k: z.number().int().min(1).max(20).default(8).describe('Number of results (default 8).'),
 };
 
@@ -32,28 +36,26 @@ export interface DecisionHit {
   timestamp: string | null;
   confidence: number | null;
   source: string;
+  /** Com taskId: 'task' | 'irmã' | 'epic', e a key por onde veio. */
+  relation?: string;
+  via?: string;
 }
 
 async function decisionsOfTask(taskId: string, k: number): Promise<DecisionHit[]> {
-  return withSession(async (s) => {
-    const r = await s.run(
-      `MATCH (d:Decision { status: 'active' })-[:ON_TASK]->(:Task { key: $key })
-       RETURN d.id AS id, d.kind AS kind, d.text AS text, d.projectPath AS project,
-              d.taskKeys AS tasks, d.createdAt AS ts
-       ORDER BY d.createdAt DESC LIMIT toInteger($k)`,
-      { key: taskId.toUpperCase(), k },
-    );
-    return r.records.map((rec) => ({
-      id: rec.get('id'),
-      kind: rec.get('kind'),
-      text: rec.get('text'),
-      project: rec.get('project'),
-      tasks: rec.get('tasks') ?? [],
-      timestamp: rec.get('ts'),
-      confidence: null,
-      source: 'decision',
-    }));
-  });
+  const key = taskKeyFromSlug(taskId) ?? taskId.toUpperCase();
+  const fam = await withSession((s) => decisionsOfFamily(s, key, k));
+  return fam.map((d) => ({
+    id: d.id,
+    kind: d.kind,
+    text: d.text,
+    project: d.project,
+    tasks: d.tasks,
+    timestamp: d.timestamp,
+    confidence: null,
+    source: 'decision',
+    relation: d.relation,
+    via: d.via,
+  }));
 }
 
 export async function findDecisions(args: { query: string; taskId?: string; k?: number }): Promise<DecisionHit[]> {
@@ -85,7 +87,7 @@ export function registerFindDecisionsTool(server: McpServer): void {
     'find_decisions',
     {
       description:
-        'Distilled decisions, rules and gotchas from past sessions (short, self-contained, ~50 tokens each). Cheapest way to recall "what did we decide about X" or "what is the rule for Y". With `taskId`, lists that task\'s decisions.',
+        'Distilled decisions, rules and gotchas from past sessions (short, self-contained, ~50 tokens each). Cheapest way to recall "what did we decide about X" or "what is the rule for Y". With `taskId`, lists that task\'s decisions plus the ones from sibling tasks of the same epic (other repos included) and the epic itself.',
       inputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
@@ -98,7 +100,7 @@ export function registerFindDecisionsTool(server: McpServer): void {
             : hits
                 .map(
                   (h, i) =>
-                    `[${i + 1}] conf=${fmtConf(h.confidence)} id=${shortId(h.id)} ${h.kind} ${projectName(h.project)} ${day(h.timestamp)}${h.tasks.length ? ` ${h.tasks.join(',')}` : ''} | ${h.source === 'decision' ? h.text : h.text.slice(0, 200)}`,
+                    `[${i + 1}] conf=${fmtConf(h.confidence)} id=${shortId(h.id)} ${h.kind} ${projectName(h.project)} ${day(h.timestamp)}${h.tasks.length ? ` ${h.tasks.join(',')}` : ''}${h.relation && h.relation !== 'task' ? ` via ${h.relation} ${h.via}` : ''} | ${h.source === 'decision' ? h.text : h.text.slice(0, 200)}`,
                 )
                 .join('\n');
         return withStructured({ content: [{ type: 'text', text }] }, { hits });

@@ -12,6 +12,7 @@ import {
   RECENCY_HALFLIFE_DAYS,
   VALUE_DEMOTE_THRESHOLD,
   QUERY_TASK_BOOST,
+  EPIC_SIBLING_BOOST,
   TASK_RECALL_LIMIT,
   RECALL_POOL,
   RECALL_POOL_MAX,
@@ -29,6 +30,7 @@ import { gistOf, lexicalHints } from '../../ingest/quality.ts';
 import { day, fmtConf, projectName, shortId, withStructured } from '../output.ts';
 import { taskKeysFromText } from '../../ingest/entities.ts';
 import { resolveCallerSession } from '../callerSession.ts';
+import { epicSiblingSessions, sessionTaskKeys } from '../../epics/family.ts';
 import { logQuery } from '../../learning/queryLog.ts';
 
 const inputSchema = {
@@ -430,6 +432,8 @@ export async function searchMemory(args: {
    * caller real, que no bench é nenhum, e o A/B mede sempre boost neutro.
    */
   callerSessionId?: string | null;
+  /** Só uso interno (bench A/B): sobrescreve EPIC_SIBLING_BOOST. */
+  epicBoost?: number;
   /**
    * Caminho do hook de push: pool menor, sem retry fundo, sem kin. Precisa
    * caber no orçamento de latência de um hook que roda a cada prompt.
@@ -748,9 +752,16 @@ export async function searchMemory(args: {
     const relMap = new Map<string, number>();
     candidates.forEach((c, i) => relMap.set(c.id, relNorm[i] ?? 0));
 
+    // Irmãs pelo epic: das tasks nomeadas na query e da task da sessão que
+    // busca. Roda também no fast (push): são 2 queries indexadas, ~10ms.
+    const callerId = args.callerSessionId !== undefined ? args.callerSessionId : resolveCallerSession().sessionId;
+    const familyKeys = [...new Set([...taskKeysFromText(args.query), ...(await sessionTaskKeys(s, callerId))])];
+    const epicSiblings = await epicSiblingSessions(s, familyKeys);
+    for (const id of queryTaskSessions) epicSiblings.delete(id);
+
     const kin =
       !args.fast && tuning.entityBoost > 1
-        ? await kinSessions(s, args.callerSessionId !== undefined ? args.callerSessionId : resolveCallerSession().sessionId)
+        ? await kinSessions(s, callerId)
         : new Set<string>();
 
     const picked = mmrSelect(
@@ -765,6 +776,7 @@ export async function searchMemory(args: {
         boostOf(c.meta) *
         valueMult(c, tuning.valueDemote) *
         (c.meta.sessionId && kin.has(c.meta.sessionId) ? tuning.entityBoost : 1) *
+        (c.meta.sessionId && epicSiblings.has(c.meta.sessionId) ? (args.epicBoost ?? EPIC_SIBLING_BOOST) : 1) *
         (c.meta.sessionId && queryTaskSessions.has(c.meta.sessionId) ? QUERY_TASK_BOOST : 1),
     );
 

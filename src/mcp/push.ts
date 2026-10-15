@@ -8,6 +8,7 @@ import { learningPaths } from '../learning/paths.ts';
 import { logQuery } from '../learning/queryLog.ts';
 import { gistOf, stripWrappers } from '../ingest/quality.ts';
 import { normalizeFilePath } from '../ingest/entities.ts';
+import { crossRepoRuleForFile } from '../epics/family.ts';
 import { day, projectName, shortId } from './output.ts';
 import type { Profile } from '../learning/types.ts';
 
@@ -33,6 +34,8 @@ interface PushState {
   injectedChunks: string[];
   injectedSessions: string[];
   files: string[];
+  /** Decisions de outro repo já empurradas via epic (uma vez por sessão cada). */
+  epicDecisions: string[];
   count: number;
 }
 
@@ -47,10 +50,11 @@ function readState(sessionId: string): PushState {
       injectedChunks: raw.injectedChunks ?? [],
       injectedSessions: raw.injectedSessions ?? [],
       files: raw.files ?? [],
+      epicDecisions: raw.epicDecisions ?? [],
       count: raw.count ?? 0,
     };
   } catch {
-    return { injectedChunks: [], injectedSessions: [], files: [], count: 0 };
+    return { injectedChunks: [], injectedSessions: [], files: [], epicDecisions: [], count: 0 };
   }
 }
 
@@ -214,24 +218,36 @@ export async function pushForFile(args: {
     const dec = d.records[0]
       ? { id: d.records[0].get('id') as string, kind: d.records[0].get('kind') as string, text: d.records[0].get('text') as string }
       : null;
-    return { sessions, dec };
+    // regra de OUTRO repo pelo epic da task da sessão (back -> front)
+    const cross = await crossRepoRuleForFile(s, {
+      sessionId: args.sessionId,
+      fileRepo: ref.repo,
+      path: ref.path,
+      exclude: [...(st?.epicDecisions ?? []), ...(dec ? [dec.id] : [])],
+    });
+    return { sessions, dec, cross };
   });
 
-  const { sessions, dec } = rows;
+  const { sessions, dec, cross } = rows;
   if (args.sessionId && st) {
     st.files.push(ref.key);
-    if (sessions.length > 0 || dec) st.count++;
+    if (cross) st.epicDecisions.push(cross.id);
+    if (sessions.length > 0 || dec || cross) st.count++;
     writeState(args.sessionId, st);
   }
-  if (sessions.length === 0 && !dec) return { context: null, reason: 'no-history' };
+  if (sessions.length === 0 && !dec && !cross) return { context: null, reason: 'no-history' };
 
   const refs = sessions
     .map((r) => (r.tasks.length ? r.tasks.join('/') : `session ${r.sid.slice(0, 8)}`) + ` ${day(r.at)}`)
     .join(', ');
   const decLine = dec ? ` ${dec.kind} (id=${shortId(dec.id)}): ${gistOf(dec.text, 200)}` : '';
   const hist = sessions.length > 0 ? ` já foi alterado em: ${refs}.` : '';
+  const crossLine = cross
+    ? ` ${cross.kind} de ${projectName(cross.project)} (${cross.relation === 'epic' ? 'epic' : 'irmã'} ${cross.via}, id=${shortId(cross.id)}): ${gistOf(cross.text, 200)}`
+    : '';
+  const head = sessions.length > 0 || dec ? `${ref.path}${hist}${decLine}` : `${ref.path}:`;
   return {
-    context: `[memória mcp-talks-cc] ${ref.path}${hist}${decLine} search_memory com o nome do arquivo/task se o contexto importar.`,
+    context: `[memória mcp-talks-cc] ${head}${crossLine} search_memory com o nome do arquivo/task se o contexto importar.`,
     reason: 'hit',
   };
 }

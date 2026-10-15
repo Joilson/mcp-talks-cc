@@ -199,6 +199,11 @@ if [ "${new_chunks:-0}" -gt 0 ]; then
   log "build:entities start"
   npm run build:entities -- --apply >> "$LOG" 2>&1
   log "build:entities done (exit $?)"
+  # Vínculo task -> epic, parte sem custo: linha [task] do pré-prompt + regex.
+  # A parte com Haiku roda no bloco opt-in da distilação, mais abaixo.
+  log "link:epics (sem LLM) start"
+  npm run link:epics -- --apply --no-llm >> "$LOG" 2>&1
+  log "link:epics (sem LLM) done (exit $?)"
 fi
 
 # ── SIMILAR_TO: edges do find_similar_chunks só cobrem chunk já processado ───
@@ -252,6 +257,14 @@ elif [ "$DISTILL_N" -gt 0 ] 2>/dev/null && command -v claude >/dev/null 2>&1; th
   fi
   if mkdir "$DISTILL_LOCK" 2>/dev/null; then
     trap 'rm -rf "$DISTILL_LOCK" 2>/dev/null || true' EXIT INT TERM
+    # Antes do distill: chamada menor (~2k tokens, só trechos em volta de
+    # "épico/parent"), e o vínculo é o que faz a regra cruzar repos.
+    LINK_N="${MCP_TALKS_EPIC_LINK_PER_RUN:-5}"
+    if [ "$LINK_N" -gt 0 ] 2>/dev/null; then
+      log "link:epics start (limit $LINK_N)"
+      npm run link:epics -- --apply --limit="$LINK_N" >> "$LOG" 2>&1
+      log "link:epics done (exit $?)"
+    fi
     log "distill start (limit $DISTILL_N)"
     npm run distill -- --limit="$DISTILL_N" --recent-days=7 >> "$LOG" 2>&1
     log "distill done (exit $?)"

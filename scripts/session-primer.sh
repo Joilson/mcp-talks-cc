@@ -107,6 +107,15 @@ if [ -n "$REPO_VERSION" ] && [ "${REPO_VERSION%.*}" != "${INSTALLED%.*}" ]; then
   fi
 fi
 
+# ── 2c) regras do epic da task da branch (pré-calculado pelo link:epics) ───
+# A sessão nova ainda não está no grafo; o arquivo já vem sanitizado pra sed.
+EPIC_TXT=""
+BRANCH="$(git -C "$CWD" branch --show-current 2>/dev/null || true)"
+TASK_KEY="$(printf '%s' "$BRANCH" | grep -oiE '(EDC|US|DEV|QUAL)-[0-9]+' | head -1 | tr '[:lower:]' '[:upper:]' | sed -E 's/-0+([0-9])/-\1/')"
+if [ -n "$TASK_KEY" ] && [ -s "${CACHE}/epic-primer/${TASK_KEY}.txt" ]; then
+  EPIC_TXT=" [memória mcp-talks-cc: ${TASK_KEY}] $(head -c 1500 "${CACHE}/epic-primer/${TASK_KEY}.txt" | tr -d '\n\r\"\\|&')"
+fi
+
 # ── 3) saída ────────────────────────────────────────────────────────────────
 PRIMER_OK=0
 if [ -s "$PRIMER" ]; then
@@ -117,15 +126,17 @@ if [ -s "$PRIMER" ]; then
 fi
 
 if [ "$PRIMER_OK" -eq 1 ]; then
-  if [ -n "$WARN" ]; then
-    sed -e "s|\"additionalContext\":\"|\"additionalContext\":\"${WARN}|" "$PRIMER"
+  # Fail-open: texto que quebre o sed (| & \\ que escapou da limpeza) não pode
+  # derrubar o primer inteiro. Sem o bloco do epic, sai o primer como era.
+  if OUT="$(sed -e "s|\"additionalContext\":\"|\"additionalContext\":\"${WARN}|" -e "s|\"}}[[:space:]]*\$|${EPIC_TXT}\"}}|" "$PRIMER" 2>/dev/null)" && [ -n "$OUT" ]; then
+    printf '%s\n' "$OUT"
   else
-    cat "$PRIMER"
+    sed -e "s|\"additionalContext\":\"|\"additionalContext\":\"${WARN}|" "$PRIMER"
   fi
   exit 0
 fi
 
-if [ -n "$WARN" ]; then
-  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$WARN"
+if [ -n "$WARN" ] || [ -n "$EPIC_TXT" ]; then
+  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "${WARN}${EPIC_TXT}"
 fi
 exit 0

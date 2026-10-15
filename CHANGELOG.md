@@ -15,6 +15,42 @@ Sem o Claude: `npm run upgrade` e `npm run upgrade:claude-md -- --dry-run | --ap
 Convenção: **patch** (0.3.x) não tem passo de upgrade e não gera pergunta; o código vale no
 `git pull`. **Minor** (0.x.0) pode ter migração e dispara a pergunta de atualização.
 
+## 0.3.5 (2026-10-15)
+
+Epic como ponte entre repos: regra escrita no back passa a aparecer no front (e vice-versa)
+quando as duas tasks são filhas do mesmo epic. Nada acessa o Jira: a hierarquia vem do que já
+está na memória.
+
+- **Vínculo task -> epic** (`npm run link:epics`, `src/epics/link.ts`): `(Task)-[:PART_OF]->(Task:Epic)`
+  e `(Epic)-[:RELATES]->(Epic)`, de três fontes, em ordem de confiança:
+  - linha fixa `[task] KEY-1 pai=KEY-2 (Epic: título)` que o fluxo "analise KEY" passa a emitir
+    (bloco do CLAUDE.md v4);
+  - Haiku lendo só os trechos em volta de "épico/parent/pai" (~2k tokens por sessão, opt-in junto
+    com a distilação, 5 sessões por SessionStart);
+  - regex no caso inequívoco ("Épico EDC-3208" com 1 task na sessão), sem custo.
+  Medido contra o Jira: 20/20 vínculos certos. O Haiku só troca o pai dado por outra fonte com
+  confiança high (em medium ele confundiu PRD com epic). Projeto meta (o próprio mcp-talks-cc)
+  não é fonte: tem keys de exemplo. Epic balde (Bugs, Débitos técnicos) não forma família;
+  override com `MCP_TALKS_EPIC_BUCKETS` / `MCP_TALKS_EPIC_NOT_BUCKETS`.
+- **Consumo**:
+  - `find_decisions({ taskId })` traz também as decisões das tasks irmãs e do epic (metade das
+    vagas, outro repo primeiro), marcadas `via irmã EDC-X`.
+  - Tool nova `recall_task({ taskKey })`: índice da task em ~300 tokens (repos, epic, irmãs,
+    contagem de decisões, planos, arquivos).
+  - Push por arquivo anexa 1 regra de outro repo do mesmo epic que cite o assunto do arquivo.
+  - Primer: sessão aberta numa branch de task ganha as regras das irmãs
+    (`~/.cache/mcp-talks-cc/epic-primer/<KEY>.txt`, gerado pelo link:epics).
+  - `search_memory`: sessões de irmãs ganham boost 1.2 no MMR (`bench:epic-cross`: MRR do 1º hit
+    de outro repo 0.147 -> 0.200; `bench:task-recall` inalterado, 100% / 0.990).
+- **Base**: `taskKeyFromSlug` centraliza o regex de slug; TaskMemoryDoc ganha `ABOUT_TASK`; stats
+  contam todo label; `memory://schema` documenta Decision, Epic, PART_OF e RELATES; chamada
+  `claude -p` do distill extraída pra `src/distill/headless.ts`.
+- **Bench novo** `npm run bench:epic-cross`. `bench:recall` passa o caller do caso, então o kin e o
+  boost por epic passam a ser medidos no A/B.
+
+Sem passo de upgrade: o hook roda o vínculo sozinho. O primer pergunta se aplica o bloco novo do
+CLAUDE.md (linha `[task]` e `recall_task` no fluxo de análise).
+
 ## 0.3.4 (2026-10-07)
 
 - Hook recria o `value-model.json` quando ele não existe. O modelo mora em `~/.cache`, então

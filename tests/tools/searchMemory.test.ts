@@ -32,7 +32,7 @@ describe('search_memory tool', () => {
     await client.close();
   });
 
-  it('lists 7 tools', async () => {
+  it('lists 8 tools', async () => {
     const r = await client.listTools();
     const names = r.tools.map((t) => t.name).sort();
     assert.deepEqual(names, [
@@ -42,6 +42,7 @@ describe('search_memory tool', () => {
       'find_similar_chunks',
       'get_session_transcript',
       'list_project_activity',
+      'recall_task',
       'search_memory',
     ]);
   });

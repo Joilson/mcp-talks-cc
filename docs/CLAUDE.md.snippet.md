@@ -10,10 +10,10 @@ literal, então funciona pra qualquer prefixo.
 
 ---
 
-<!-- mcp-talks-cc:snippet v3 (npm run upgrade compara esta versão) -->
+<!-- mcp-talks-cc:snippet v4 (npm run upgrade compara esta versão) -->
 ## Memória cross-conversa (MCP `mcp-talks-cc`)
 
-O server MCP se chama `mcp-talks-cc` (tools no formato `mcp__mcp-talks-cc__*`). Sempre referir a ele por esse nome, nunca "memory". MCP local indexa conversas Claude Code passadas, plans, todos e task memory em Neo4j com busca vetorial. Tools: `search_memory`, `expand_hits`, `get_session_transcript`, `find_related_plans`, `find_decisions`, `list_project_activity`. Resources: `memory://stats`, `memory://schema`, `memory://profile` (perfil aprendido pelo self-tune; use pra responder "oq vc aprendeu de mim").
+O server MCP se chama `mcp-talks-cc` (tools no formato `mcp__mcp-talks-cc__*`). Sempre referir a ele por esse nome, nunca "memory". MCP local indexa conversas Claude Code passadas, plans, todos e task memory em Neo4j com busca vetorial. Tools: `search_memory`, `expand_hits`, `get_session_transcript`, `find_related_plans`, `find_decisions`, `list_project_activity`, `recall_task`. Resources: `memory://stats`, `memory://schema`, `memory://profile` (perfil aprendido pelo self-tune; use pra responder "oq vc aprendeu de mim").
 
 ### Quando consultar (regra firme)
 
@@ -44,6 +44,10 @@ Hooks podem injetar 1 linha `[memória mcp-talks-cc] talvez relevante: id=... co
 Quando o user pedir "analise KEY-1234" (ou variações tipo "vamos mexer na KEY-1234"), onde `KEY` é qualquer prefixo de projeto Jira:
 
 1. **Busca a task no Jira** normalmente (skill de análise de issue ou MCP atlassian)
+   - Logo depois, **escreva 1 linha fixa** com a hierarquia que veio do Jira, no formato exato:
+     `[task] KEY-1234 pai=KEY-1200 (Epic: <título do pai>)` (use `História:` se o pai for story; `pai=-` se não tiver pai).
+     O ingest do `mcp-talks-cc` lê essa linha e liga a task ao epic, que é o que faz regra do back aparecer no front. Não pule, mesmo que o pai pareça óbvio.
+   - Chame `recall_task({ taskKey })` (~300 tokens, sem snippet): mostra o epic e as tasks irmãs em outros repos. Se tiver irmã, `find_decisions({ taskId })` traz as regras dela (ex: regra do back que vale pro front).
 2. Da description + comentários da task, **identifique 2-3 tópicos técnicos centrais** (ex: "feature flag", "react query cache", "validação form com react-hook-form", "migration Laravel"). Você decide o que é relevante — não copie literalmente, abstraia.
 3. Para cada tópico, chame `search_memory({ query: <tópico>, k: 4 })`. Se a task menciona repo específico, passe `project`: é soft boost (prioriza o repo sem esconder os outros, regras cruzam repos). Só use `projectStrict: true` quando quiser literalmente 1 repo.
 4. **Avalie `confidence`, nunca `score`** (ver "Como ler os números" abaixo). Os cortes `FORTE` e `PISO` não são constantes: leia os valores vigentes antes de decidir (ver abaixo de onde).

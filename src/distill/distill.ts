@@ -1,13 +1,11 @@
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
 import type { Session } from 'neo4j-driver';
 import { z } from 'zod';
 import { config } from '../config.ts';
 import { embed } from '../embeddings/localEmbedder.ts';
 import { stripWrappers } from '../ingest/quality.ts';
 import { redact } from '../ingest/redact.ts';
+import { runHeadless } from './headless.ts';
 
 /**
  * Distilação: de uma sessão fechada, extrai decisões, regras e gotchas curtos
@@ -186,52 +184,18 @@ export async function buildSessionInput(s: Session, sessionId: string): Promise<
   };
 }
 
-const DISTILL_CWD = join(config.paths.cacheDir, 'distill-cwd');
-
 /** Uma chamada headless. Lança em erro/timeout (o caller marca e segue). */
 export async function callClaude(input: SessionInput): Promise<DistillItem[]> {
-  mkdirSync(DISTILL_CWD, { recursive: true });
   const header =
     `Repo: ${input.projectPath ?? '-'} | branch: ${input.gitBranch ?? '-'} | tasks: ${input.tasks.join(', ') || '-'}\n\n`;
-  const args = [
-    '-p',
-    '--model', DISTILL_MODEL,
-    '--output-format', 'json',
-    '--tools', '',
-    '--strict-mcp-config',
-    '--setting-sources', 'project',
-    '--no-session-persistence',
-    '--system-prompt', SYSTEM_PROMPT,
-    '--json-schema', JSON.stringify(JSON_SCHEMA),
-  ];
-  const out = await new Promise<string>((resolve, reject) => {
-    const p = spawn('claude', args, {
-      cwd: DISTILL_CWD,
-      env: { ...process.env, MCP_TALKS_IN_DISTILL: '1' },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    let so = '';
-    let se = '';
-    const timer = setTimeout(() => {
-      p.kill('SIGKILL');
-      reject(new Error('timeout'));
-    }, CALL_TIMEOUT_MS);
-    p.stdout.on('data', (d: Buffer) => (so += d.toString('utf8')));
-    p.stderr.on('data', (d: Buffer) => (se += d.toString('utf8')));
-    p.on('error', (e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    p.on('close', (code) => {
-      clearTimeout(timer);
-      if (code !== 0) reject(new Error(`claude exit ${code}: ${se.slice(0, 300)}`));
-      else resolve(so);
-    });
-    p.stdin.end(header + input.text);
-  });
-  const parsed = JSON.parse(out) as { is_error?: boolean; structured_output?: { items?: unknown[] } };
-  if (parsed.is_error) throw new Error('claude is_error');
-  const items = parsed.structured_output?.items ?? [];
+  const out = (await runHeadless({
+    system: SYSTEM_PROMPT,
+    schema: JSON_SCHEMA,
+    input: header + input.text,
+    timeoutMs: CALL_TIMEOUT_MS,
+    model: DISTILL_MODEL,
+  })) as { items?: unknown[] } | null;
+  const items = out?.items ?? [];
   return items
     .map((i) => itemSchema.safeParse(i))
     .filter((r): r is { success: true; data: DistillItem } => r.success)

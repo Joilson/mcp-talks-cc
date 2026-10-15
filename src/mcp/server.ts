@@ -9,6 +9,7 @@ import { registerFindDecisionsTool } from './tools/findDecisions.ts';
 import { registerListProjectActivityTool } from './tools/listProjectActivity.ts';
 import { registerFindSimilarChunksTool } from './tools/findSimilarChunks.ts';
 import { registerExpandHitsTool } from './tools/expandHits.ts';
+import { registerRecallTaskTool } from './tools/recallTask.ts';
 import { registerRecallContextPrompt } from './prompts/recallContext.ts';
 import { registerExtractDecisionPrompt } from './prompts/extractDecision.ts';
 import { registerStatsResource } from './resources/stats.ts';
@@ -28,6 +29,7 @@ registerFindDecisionsTool(server);
 registerListProjectActivityTool(server);
 registerFindSimilarChunksTool(server);
 registerExpandHitsTool(server);
+registerRecallTaskTool(server);
 
 registerRecallContextPrompt(server);
 registerExtractDecisionPrompt(server);

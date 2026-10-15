@@ -165,3 +165,77 @@ export function filePathFromSnippet(snippet: string | null | undefined): string 
     return m[1] ?? null;
   }
 }
+
+// ── Hierarquia: task -> pai (epic/story) ───────────────────────────────────
+
+export interface TaskLine {
+  task: string;
+  parent: string | null;
+  parentType: 'epic' | 'story' | null;
+  parentTitle: string | null;
+}
+
+/**
+ * Linha fixa que o fluxo "analise EDC-XXXX" emite (bloco do CLAUDE.md):
+ *
+ *   [task] EDC-3309 pai=EDC-3208 (Epic: Estender contratos V2)
+ *   [task] EDC-3400 pai=-
+ *
+ * É a fonte mais confiável do vínculo: veio do Jira no momento da análise,
+ * sem inferência. Keys passam pela allowlist/normalização da branch.
+ */
+const TASK_LINE_RE =
+  /\[task\]\s+([A-Za-z]{2,6}-\d{1,6})\s+pai=([A-Za-z]{2,6}-\d{1,6}|-)(?:\s*\(\s*(Epic|Épico|Epico|Story|História|Historia)\s*:\s*([^)\n]{1,160})\))?/g;
+
+export function parseTaskLines(text: string): TaskLine[] {
+  const out: TaskLine[] = [];
+  TASK_LINE_RE.lastIndex = 0;
+  for (const m of text.matchAll(TASK_LINE_RE)) {
+    const task = taskKeyFromSlug(m[1]);
+    if (!task) continue;
+    const parent = m[2] === '-' ? null : taskKeyFromSlug(m[2]);
+    if (parent === task) continue;
+    const t = (m[3] ?? '').toLowerCase();
+    out.push({
+      task,
+      parent,
+      parentType: !parent ? null : t.startsWith('e') ? 'epic' : t ? 'story' : null,
+      parentTitle: parent && m[4] ? m[4].trim() : null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Pré-filtro de candidato pro link:epics: texto que fala de hierarquia. Barato
+ * e frouxo de propósito ("pai" pega falso positivo), quem decide é o Haiku.
+ * Sem `\b`: em JS ele não reconhece letra acentuada ("épico").
+ */
+export const HIERARCHY_WORD_RE = /(?<![\p{L}\p{N}])(épico|epico|epic|parent|pai|história|historia|story)(?![\p{L}\p{N}])/giu;
+
+/** Key logo depois de "épico/epic/parent/pai", ex. `Épico EDC-3208`, `Parent:** EDC-2491`. */
+const PARENT_REF_RE =
+  /(?<![\p{L}\p{N}])(?:épico|epico|epic|parent|pai)(?![\p{L}\p{N}])[\s:*|[(`=]{0,6}((?:EDC|US|DEV|QUAL)-\d{2,6})(?!\d)/giu;
+
+/** Keys citadas como pai no texto. Base do piso por regex (confiança baixa). */
+export function parentRefsFromText(text: string): string[] {
+  PARENT_REF_RE.lastIndex = 0;
+  const found = new Set<string>();
+  for (const m of text.matchAll(PARENT_REF_RE)) {
+    const k = taskKeyFromSlug(m[1]);
+    if (k) found.add(k);
+  }
+  return [...found];
+}
+
+/**
+ * Epic "balde" junta tasks sem relação (Bugs, Débitos técnicos). Tratar os
+ * filhos como irmãos criaria parentesco falso, então o consumo ignora.
+ * Override por key no .env vence a heurística (ver isBucketEpic em link.ts).
+ */
+const BUCKET_TITLE_RE =
+  /(?<![\p{L}\p{N}])(bugs?|d[ée]bitos?|melhorias?|sustenta[çc][ãa]o|backlog|tech ?debt|chores?)(?![\p{L}\p{N}])/iu;
+
+export function isBucketTitle(title: string | null | undefined): boolean {
+  return !!title && BUCKET_TITLE_RE.test(title);
+}

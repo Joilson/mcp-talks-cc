@@ -56,6 +56,13 @@ const SCHEMA_DOC = `# mcp-talks-cc — Neo4j schema
                                                         os 72 nós referenciam sessões inexistentes
 - Task { key, prefix, sessionCount,
          firstSeenAt, lastSeenAt }                    — EDC-3197 etc, da branch e do texto
+  :Epic / :Story { title, bucket, childCount,
+                   childRepos, bucketHint }           — label extra no mesmo nó Task quando é pai
+                                                        (link:epics); bucket = epic balde (Bugs,
+                                                        Débitos técnicos): filhas sem relação
+- Decision { id, kind, text, scope, repo,
+             projectPath, taskKeys, confidence,
+             status, createdAt }                       — regra/decisão/gotcha destilado (distill)
 - File { key, repo, path, ext, sessionCount, idf }    — arquivo tocado, do input do ToolCall
 - TaskMemoryDoc { path, taskId, kind, projectPath,
                   lastModified }                       — <project>/.claude/tasks/ABC-XXXX/*.md
@@ -76,6 +83,13 @@ const SCHEMA_DOC = `# mcp-talks-cc — Neo4j schema
 - (Task)-[:TOUCHES]->(File)               — derivada, responde trabalho relacionado em 1 hop
 - (Task)-[:IN_PROJECT]->(Project)
 - (Plan)-[:PLANNED_IN]->(Session), (Plan)-[:ABOUT_TASK]->(Task), (Project)-[:HAS_PLAN]->(Plan)
+- (TaskMemoryDoc)-[:ABOUT_TASK]->(Task)
+- (Task)-[:PART_OF {source, confidence, unit, at}]->(Task:Epic|Story)
+  source = prompt (linha [task] do fluxo "analise KEY") | haiku | regex; 1 pai por task.
+  Irmãs (filhas do mesmo pai não-balde) são a ponte entre repos: back e front da mesma feature.
+- (Task:Epic)-[:RELATES {source}]->(Task)  — epic que continua/se relaciona com outro (V1/V2, antecessor)
+- (Decision)-[:HAS_CHUNK]->(Chunk), (Decision)-[:FROM_SESSION]->(Session)
+- (Decision)-[:ON_TASK]->(Task), (Decision)-[:ABOUT]->(File)
 - (Chunk)-[:SIMILAR_TO {score, computedAt}]->(Chunk)
   precomputed cross-chunk semantic neighbors (top-3, threshold>=0.75)
   use traversal via find_similar_chunks tool (no re-embed)
@@ -95,6 +109,9 @@ BM25 only when the query has literal tokens (ABC-1234, path.ext, camelCase,
 snake_case, CONST_CASE, ACRONYM, 1.2.3). Recall pool = union of vector top-500,
 BM25 top-500 and chunks of sessions linked to a task named in the query.
 Ranking = RRF (k=60) over the lists x learned boosts, then MMR (diversity).
+Sessions of epic sibling tasks (of the task named in the query or of the
+caller's branch task) get a weak boost (1.2) in MMR: cross-repo work of the
+same feature surfaces without crowding the task's own sessions.
 Output is brief by default; expand_hits(ids) returns full text.
 
 ## sourceKind values on Chunk
@@ -115,10 +132,11 @@ RETURN node.text, node.sourceKind, score
 MATCH (p:Project { path: $cwd })-[:HAS_SESSION]->(s:Session)
 RETURN s.id, s.startedAt, s.gitBranch ORDER BY s.startedAt DESC
 
-# decisions for a single ticket task:
-MATCH (d:TaskMemoryDoc { taskId: 'ABC-123', kind: 'decisions' })
-MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
-RETURN c.text ORDER BY c.ordinal
+# decisions of a task and of its siblings under the same epic (other repos):
+MATCH (t:Task { key: 'ABC-123' })-[:PART_OF]->(e:Task) WHERE NOT coalesce(e.bucket, false)
+MATCH (e)<-[:PART_OF]-(sib:Task)<-[:ON_TASK]-(d:Decision { status: 'active' })
+RETURN sib.key, d.repo, d.kind, d.text
+(or just: find_decisions({ taskId: 'ABC-123' }) / recall_task({ taskKey: 'ABC-123' }))
 `;
 
 export function registerSchemaResource(server: McpServer): void {

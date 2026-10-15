@@ -47,6 +47,17 @@ export const VALUE_DEMOTE_THRESHOLD = 0.3;
  */
 export const QUERY_TASK_BOOST = 1.6;
 
+/**
+ * Peso para chunk de sessão de task IRMÃ (mesmo epic) da task nomeada na query
+ * ou da sessão que está buscando. É a ponte entre repos: a irmã costuma ser o
+ * outro lado (back/front) da mesma feature.
+ *
+ * Bem abaixo do QUERY_TASK_BOOST de propósito: o vínculo é inferido (linha
+ * [task], regex ou Haiku), não literal. E as irmãs NÃO furam o teto por sessão
+ * do MMR nem entram no task recall, senão um epic com 10 filhas lotaria o top-k.
+ */
+export const EPIC_SIBLING_BOOST = 1.2;
+
 /** Teto de chunks recrutados pela task nomeada na query. */
 export const TASK_RECALL_LIMIT = 120;
 
