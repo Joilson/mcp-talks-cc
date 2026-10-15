@@ -15,6 +15,15 @@ Sem o Claude: `npm run upgrade` e `npm run upgrade:claude-md -- --dry-run | --ap
 Convenção: **patch** (0.3.x) não tem passo de upgrade e não gera pergunta; o código vale no
 `git pull`. **Minor** (0.x.0) pode ter migração e dispara a pergunta de atualização.
 
+## 0.4.1 (2026-10-15)
+
+- Vínculo task -> epic com Haiku vira **opt-in próprio** (`MCP_TALKS_EPIC_LLM`), separado da
+  distilação. Custa bem menos (~2k tokens e só em sessão que cita epic) e é o que dá a cobertura
+  (sem ele só entra o caso literal, ~1/3 dos pais). O primer pergunta ("Ligar - maior precisão" /
+  "Só regex") pra quem está com a distilação desligada, ou logo depois de um "não" pra ela.
+  Sem a linha no `.env` o comportamento segue a distilação, então quem já tinha ligado não muda.
+  Resposta: `npm run upgrade -- --epic-llm=on|off`.
+
 ## 0.4.0 (2026-10-15)
 
 Epic como ponte entre repos: regra escrita no back passa a aparecer no front (e vice-versa)

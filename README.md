@@ -71,7 +71,7 @@ O wrapper:
 - classificação de valor: chunk novo ganha `valueScore` (entrega x narração). Sem `value-model.json` (máquina nova, cache limpo) treina antes (`train:value --strict`, ~20s; não grava modelo que não separa);
 - com chunk novo: `build:entities` (Task, File, planos), `link:epics --no-llm` (vínculo task -> epic sem custo) e `rebuild:similar` (no máx 1x/20h);
 - `self-tune` (grada as buscas da sessão anterior, recalibra `confidence` e o gate);
-- com `MCP_TALKS_DISTILL=1`: `link:epics` com Haiku (5 sessões por run) e a distilação (ver [Distilação](#distilação)), soltando o lock do ingest antes;
+- com `MCP_TALKS_EPIC_LLM=1`: `link:epics` com Haiku (5 sessões por run); com `MCP_TALKS_DISTILL=1`: a distilação (ver [Distilação](#distilação)). Os dois soltam o lock do ingest antes;
 - append com timestamp em `~/.cache/mcp-talks-cc/ingest.log`.
 
 **Fail-open é regra aqui.** Guard de lock que falha fechado mata o ingest em silêncio: `flock` não existe no macOS, então `command not found` era lido como "já tem ingest rodando" e o hook saía toda vez, por semanas, sem erro visível. Guard quebrado nunca pode significar skip, e é pra isso que existe o `health.json` mais o alerta no primer.
@@ -170,10 +170,12 @@ que já está na memória, de três fontes (uma task tem no máximo 1 pai; vence
 | Fonte | Como | Custo |
 |---|---|---|
 | `prompt` | linha fixa `[task] EDC-3309 pai=EDC-3208 (Epic: título)` que o fluxo "analise KEY" emite (bloco do CLAUDE.md) | zero |
-| `haiku` | `claude -p` lê só os trechos em volta de "épico/epic/parent/pai" (~2k tokens por sessão). Só troca pai vindo de outra fonte com confiança `high` | opt-in junto com a distilação, 5 por SessionStart (`MCP_TALKS_EPIC_LINK_PER_RUN`) |
+| `haiku` | `claude -p` lê só os trechos em volta de "épico/epic/parent/pai" (~2k tokens por sessão). Só troca pai vindo de outra fonte com confiança `high` | opt-in `MCP_TALKS_EPIC_LLM=1` (sem a linha, segue a distilação), 5 por SessionStart (`MCP_TALKS_EPIC_LINK_PER_RUN`) |
 | `regex` | 1 task na sessão + 1 único "Épico EDC-X" citado | zero |
 
-Medido contra o Jira (52 tasks): 20/20 vínculos certos. O projeto meta (este repo) não é fonte,
+Medido contra o Jira (52 tasks): 20/20 vínculos certos. Sem o Haiku só entra o caso literal,
+~1/3 dos pais; por isso o primer pergunta se liga ("maior precisão") pra quem está com a
+distilação desligada. Muda com `npm run upgrade -- --epic-llm=on|off`. O projeto meta (este repo) não é fonte,
 porque discute os formatos com keys de exemplo.
 
 **Epic balde** (`Bugs`, `Débitos técnicos`, `Melhorias`...) junta tasks sem relação: as filhas não

@@ -94,8 +94,21 @@ DISTILL_STEP=""
 if ! grep -q '^MCP_TALKS_DISTILL=' "${PROJECT_DIR}/.env" 2>/dev/null; then
   DISTILL_STEP="Por fim pergunte com AskUserQuestion se liga a distilacao automatica (opcoes: Ligar, Nao ligar). Explique em 3 linhas curtas, sem empurrar: O QUE E: ao abrir uma sessao, conversas ja encerradas viram regras, decisoes e armadilhas curtas (ate 300 chars, ex: limite de convites e por empresa por dia, mudar a config so vale no dia seguinte), ligadas a task e aos arquivos. POR QUE VALE: essas regras aparecem sozinhas no inicio da sessao e ao abrir um arquivo que ja deu problema, e uma regra custa uns 50 tokens de contexto contra 3 trechos de conversa de uns 150 cada; sem isso a memoria so devolve trecho bruto de conversa. CUSTO: roda em background com claude -p Haiku, uns 10k tokens da conta dele por sessao destilada (ate 5 recentes mais 3 antigas por sessao aberta), nao atrasa nada, desliga quando quiser. Depois rode npm run upgrade -- --distill=on ou --distill=off ${PROJECT_HINT}."
 fi
+# Vínculo task -> epic com Haiku: opt-in próprio. Sem a linha, segue a
+# distilação; então só pergunta quando a distilação está desligada (=0) ou
+# ainda vai ser perguntada (aí entra como pergunta condicional depois dela).
+EPIC_Q="pergunte com AskUserQuestion se liga o vinculo task-epic com Haiku (opcoes: Ligar - maior precisao, So regex). Explique em 3 linhas curtas, sem empurrar: O QUE E: liga cada task ao epic pai lendo so os trechos da conversa que citam epico ou parent, e com isso regra decidida no back aparece pra quem mexe no front da mesma feature (primer, push e find_decisions). POR QUE VALE: sem Haiku so entra o caso literal Epico EDC-X com 1 task na sessao, cerca de 1/3 dos pais; com Haiku entra o resto, e foi medido 20 de 20 vinculos certos contra o Jira. CUSTO: uns 2k tokens Haiku da conta dele por sessao que cita epico, ate 5 por sessao aberta, em background, desliga quando quiser. Depois rode npm run upgrade -- --epic-llm=on ou --epic-llm=off ${PROJECT_HINT}."
+EPIC_STEP=""
+if ! grep -q '^MCP_TALKS_EPIC_LLM=' "${PROJECT_DIR}/.env" 2>/dev/null; then
+  DISTILL_VAL="$(sed -nE 's/^MCP_TALKS_DISTILL=([^[:space:]#]*).*/\1/p' "${PROJECT_DIR}/.env" 2>/dev/null | tail -1)"
+  if [ -n "$DISTILL_STEP" ]; then
+    DISTILL_STEP="${DISTILL_STEP} Se a resposta for Nao ligar, em seguida ${EPIC_Q}"
+  elif [ "$DISTILL_VAL" != "1" ]; then
+    EPIC_STEP="Por fim ${EPIC_Q}"
+  fi
+fi
 if [ "$(date +%s)" -ge "$SNOOZE_UNTIL" ]; then
-  CLAUDE_MD_STEP="depois rode npm run upgrade:claude-md -- --dry-run ${PROJECT_HINT}, resuma o diff pro user e pergunte com AskUserQuestion se aplica as regras novas no CLAUDE.md dele (opcoes: Aplicar, Manter como esta); se Aplicar, rode npm run upgrade:claude-md -- --apply (faz backup). ${DISTILL_STEP}"
+  CLAUDE_MD_STEP="depois rode npm run upgrade:claude-md -- --dry-run ${PROJECT_HINT}, resuma o diff pro user e pergunte com AskUserQuestion se aplica as regras novas no CLAUDE.md dele (opcoes: Aplicar, Manter como esta); se Aplicar, rode npm run upgrade:claude-md -- --apply (faz backup). ${DISTILL_STEP} ${EPIC_STEP}"
   # Compara só major.minor: patch é por convenção sem passo de upgrade (o código
 # e os scripts já valem no git pull), então não merece pergunta.
 if [ -n "$REPO_VERSION" ] && [ "${REPO_VERSION%.*}" != "${INSTALLED%.*}" ]; then
@@ -104,6 +117,8 @@ if [ -n "$REPO_VERSION" ] && [ "${REPO_VERSION%.*}" != "${INSTALLED%.*}" ]; then
     WARN="${WARN}[ATUALIZACAO mcp-talks-cc] o bloco de memoria do CLAUDE.md esta desatualizado. Na PRIMEIRA resposta, ${CLAUDE_MD_STEP#depois } Se Manter como esta: rode npm run upgrade -- --snooze ${PROJECT_HINT}. "
   elif [ -n "$DISTILL_STEP" ]; then
     WARN="${WARN}[ATUALIZACAO mcp-talks-cc] Na PRIMEIRA resposta, antes do resto: ${DISTILL_STEP#Por fim } "
+  elif [ -n "$EPIC_STEP" ]; then
+    WARN="${WARN}[ATUALIZACAO mcp-talks-cc] Na PRIMEIRA resposta, antes do resto: ${EPIC_STEP#Por fim } "
   fi
 fi
 

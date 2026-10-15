@@ -242,13 +242,25 @@ DISTILL_ON="${MCP_TALKS_DISTILL:-}"
 if [ -z "$DISTILL_ON" ] && [ -f "${PROJECT_DIR}/.env" ]; then
   DISTILL_ON="$(sed -nE 's/^MCP_TALKS_DISTILL=([^[:space:]#]*).*/\1/p' "${PROJECT_DIR}/.env" | tail -1)"
 fi
-if [ "$DISTILL_ON" != "1" ]; then
-  log "distill desligado (MCP_TALKS_DISTILL=1 no .env liga)"
-elif [ "$DISTILL_N" -gt 0 ] 2>/dev/null && command -v claude >/dev/null 2>&1; then
+# Vínculo task -> epic com Haiku: opt-in próprio, bem mais barato que a
+# distilação (~2k tokens e só em sessão que cita epic). Sem resposta (linha
+# ausente), segue a distilação: quem já pagava por ela não muda nada.
+EPIC_ON="${MCP_TALKS_EPIC_LLM:-}"
+if [ -z "$EPIC_ON" ] && [ -f "${PROJECT_DIR}/.env" ]; then
+  EPIC_ON="$(sed -nE 's/^MCP_TALKS_EPIC_LLM=([^[:space:]#]*).*/\1/p' "${PROJECT_DIR}/.env" | tail -1)"
+fi
+[ -z "$EPIC_ON" ] && EPIC_ON="$DISTILL_ON"
+LINK_N="${MCP_TALKS_EPIC_LINK_PER_RUN:-5}"
+DO_DISTILL=0; DO_LINK=0
+[ "$DISTILL_ON" = "1" ] && [ "$DISTILL_N" -gt 0 ] 2>/dev/null && DO_DISTILL=1
+[ "$EPIC_ON" = "1" ] && [ "$LINK_N" -gt 0 ] 2>/dev/null && DO_LINK=1
+[ "$DO_DISTILL" -eq 0 ] && log "distill desligado (MCP_TALKS_DISTILL=1 no .env liga)"
+[ "$DO_LINK" -eq 0 ] && log "link:epics com Haiku desligado (MCP_TALKS_EPIC_LLM=1 no .env liga)"
+if [ $(( DO_DISTILL + DO_LINK )) -gt 0 ] && command -v claude >/dev/null 2>&1; then
   # Solta o lock do ingest ANTES: a distilação leva minutos, e com o lock preso
   # toda sessão aberta nesse meio tempo gravava health=lock-held, o que virava
   # [ALERTA] falso no primer da sessão seguinte. Lock próprio (mkdir atômico)
-  # só pra não ter 2 distilações chamando o claude pras mesmas sessões.
+  # só pra não ter 2 runs chamando o claude pras mesmas sessões.
   rm -rf "$LOCK_DIR" 2>/dev/null
   trap - EXIT INT TERM
   DISTILL_LOCK="${LOG_DIR}/distill.lock.d"
@@ -259,22 +271,23 @@ elif [ "$DISTILL_N" -gt 0 ] 2>/dev/null && command -v claude >/dev/null 2>&1; th
     trap 'rm -rf "$DISTILL_LOCK" 2>/dev/null || true' EXIT INT TERM
     # Antes do distill: chamada menor (~2k tokens, só trechos em volta de
     # "épico/parent"), e o vínculo é o que faz a regra cruzar repos.
-    LINK_N="${MCP_TALKS_EPIC_LINK_PER_RUN:-5}"
-    if [ "$LINK_N" -gt 0 ] 2>/dev/null; then
+    if [ "$DO_LINK" -eq 1 ]; then
       log "link:epics start (limit $LINK_N)"
       npm run link:epics -- --apply --limit="$LINK_N" >> "$LOG" 2>&1
       log "link:epics done (exit $?)"
     fi
-    log "distill start (limit $DISTILL_N)"
-    npm run distill -- --limit="$DISTILL_N" --recent-days=7 >> "$LOG" 2>&1
-    log "distill done (exit $?)"
-    if [ "$DISTILL_BACKLOG_N" -gt 0 ] 2>/dev/null; then
-      log "distill backlog start (limit $DISTILL_BACKLOG_N, mais antigas primeiro)"
-      npm run distill -- --limit="$DISTILL_BACKLOG_N" --oldest-first >> "$LOG" 2>&1
-      log "distill backlog done (exit $?)"
+    if [ "$DO_DISTILL" -eq 1 ]; then
+      log "distill start (limit $DISTILL_N)"
+      npm run distill -- --limit="$DISTILL_N" --recent-days=7 >> "$LOG" 2>&1
+      log "distill done (exit $?)"
+      if [ "$DISTILL_BACKLOG_N" -gt 0 ] 2>/dev/null; then
+        log "distill backlog start (limit $DISTILL_BACKLOG_N, mais antigas primeiro)"
+        npm run distill -- --limit="$DISTILL_BACKLOG_N" --oldest-first >> "$LOG" 2>&1
+        log "distill backlog done (exit $?)"
+      fi
     fi
   else
-    log "distill pulado (outra distilação rodando)"
+    log "distill/link pulado (outro run com claude rodando)"
   fi
 fi
 exit 0

@@ -4,6 +4,7 @@
 #   git pull && npm run upgrade
 #   npm run upgrade -- --snooze[=DIAS]   # 'agora não': primer não pergunta por N dias (default 3)
 #   npm run upgrade -- --distill=on|off  # resposta da pergunta de distilação (grava no .env)
+#   npm run upgrade -- --epic-llm=on|off # resposta da pergunta do vínculo task -> epic com Haiku
 #
 # Seguro re-rodar. Não re-ingere nada nem apaga dado: só aplica o que uma versão
 # nova precisa (deps, schema, hooks, calibração) e grava a versão instalada em
@@ -34,21 +35,30 @@ for a in "$@"; do
       exit 0 ;;
   esac
 done
-# Resposta da pergunta de distilação automática. Grava explícito (=1 ou =0):
-# linha ausente é o que faz o primer perguntar, então "não" também fica gravado.
+# Respostas das perguntas de opt-in (gastam token Haiku). Grava explícito (=1
+# ou =0): linha ausente é o que faz o primer perguntar, então "não" também fica.
+set_env() { # chave valor comentário
+  touch .env
+  if grep -q "^$1=" .env; then
+    tmp="$(mktemp "${TMPDIR:-/tmp}/mcp-env.XXXXXX")"
+    sed -E "s/^$1=.*/$1=$2/" .env > "$tmp" && cat "$tmp" > .env && rm -f "$tmp"
+  else
+    printf '\n# %s (ver .env.example)\n%s=%s\n' "$3" "$1" "$2" >> .env
+  fi
+}
 for a in "$@"; do
   case "$a" in
     --distill=on|--distill=off)
       V=0; [ "$a" = "--distill=on" ] && V=1
-      touch .env
-      if grep -q '^MCP_TALKS_DISTILL=' .env; then
-        tmp="$(mktemp "${TMPDIR:-/tmp}/mcp-env.XXXXXX")"
-        sed -E "s/^MCP_TALKS_DISTILL=.*/MCP_TALKS_DISTILL=${V}/" .env > "$tmp" && cat "$tmp" > .env && rm -f "$tmp"
-      else
-        printf '\n# distilação automática no hook (ver .env.example)\nMCP_TALKS_DISTILL=%s\n' "$V" >> .env
-      fi
+      set_env MCP_TALKS_DISTILL "$V" "distilação automática no hook"
       [ "$V" = 1 ] && echo "mcp-talks-cc: distilação automática LIGADA (vale a partir da próxima sessão)." \
                    || echo "mcp-talks-cc: distilação automática desligada. Manual: npm run distill -- --limit=10"
+      exit 0 ;;
+    --epic-llm=on|--epic-llm=off)
+      V=0; [ "$a" = "--epic-llm=on" ] && V=1
+      set_env MCP_TALKS_EPIC_LLM "$V" "vínculo task -> epic com Haiku no hook"
+      [ "$V" = 1 ] && echo "mcp-talks-cc: vínculo task -> epic com Haiku LIGADO (maior precisão; vale a partir da próxima sessão)." \
+                   || echo "mcp-talks-cc: vínculo task -> epic só com linha [task] e regex. Manual: npm run link:epics -- --apply --limit=10"
       exit 0 ;;
   esac
 done
@@ -113,6 +123,14 @@ if [ "$DISTILL_ON" != "1" ]; then
   echo "OPCIONAL: distilação automática está DESLIGADA (gasta tokens de Haiku da"
   echo "  sua conta, ~10k por sessão). Pra ligar: npm run upgrade -- --distill=on"
   echo "  Manual sem ligar: npm run distill -- --limit=10"
+  echo
+fi
+EPIC_LLM="$(sed -nE 's/^MCP_TALKS_EPIC_LLM=([^[:space:]#]*).*/\1/p' .env 2>/dev/null | tail -1)"
+[ -z "$EPIC_LLM" ] && EPIC_LLM="$DISTILL_ON"
+if [ "$EPIC_LLM" != "1" ]; then
+  echo "OPCIONAL: vínculo task -> epic com Haiku DESLIGADO. Sem ele só entra o caso"
+  echo "  literal (Épico EDC-X), ~1/3 dos pais; com ele, maior precisão e cobertura"
+  echo "  (~2k tokens por sessão que cita epic). Pra ligar: npm run upgrade -- --epic-llm=on"
   echo
 fi
 if [ ! -f "${CACHE}/recall-eval.jsonl" ]; then
