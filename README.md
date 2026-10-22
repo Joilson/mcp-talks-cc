@@ -67,6 +67,7 @@ O wrapper:
 - toma lock via `mkdir` de um lockdir com pidfile (não `flock`, que não existe no macOS), liberando por liveness do pid: run de horas não é roubado, e processo morto não bloqueia pra sempre;
 - roda `npm run ingest -- --source=all` (incremental);
 - limita o onnx a metade dos cores (`MCP_TALKS_BG=1`), pra não travar a máquina; `EMBED_THREADS=N` no `.env` fixa o número;
+- roda com prioridade baixa de CPU e disco (`nice -n 19` + `ionice -c3` no Linux, `taskpolicy -b` no macOS), via re-exec único no começo do script; sem essas ferramentas roda normal. `MCP_TALKS_LOWPRI=0` desliga;
 - escreve `~/.cache/mcp-talks-cc/health.json` (`ok` / `neo4j-down` / `failed`), que é o que o `session-primer.sh` lê pra injetar `[ALERTA mcp-talks-cc]` quando a memória está atrasada. Run que pula por lock de outro ingest não grava nada (o dono do lock grava);
 - classificação de valor: chunk novo ganha `valueScore` (entrega x narração). Sem `value-model.json` (máquina nova, cache limpo) treina antes (`train:value --strict`, ~20s; não grava modelo que não separa);
 - com chunk novo: `build:entities` (Task, File, planos), `link:epics --no-llm` (vínculo task -> epic sem custo) e `rebuild:similar` (no máx 1x/20h);
@@ -240,7 +241,7 @@ Idempotente — seguro re-rodar. Faz, em ordem:
 2. `.env` (cria de `.env.example` se faltar; mantém o existente)
 3. `npm run infra:up` (Neo4j via docker, espera healthy)
 4. `npm run db:init` (constraints + vector index)
-5. `npm run ingest -- --source=all` (1º ingest; incremental depois)
+5. `npm run ingest -- --source=all` (1º ingest; incremental depois). Em máquina com pouca RAM, ajuste o `.env` antes (ver "Consumo de recursos")
 6. registra o MCP `mcp-talks-cc` no Claude Code, só se ainda não estiver (`claude mcp get mcp-talks-cc`)
 7. `scripts/upgrade.sh`: instala os 4 hooks (`session-ingest.sh` async, `session-primer.sh`, `push-recall.sh prompt` e `push-recall.sh file`) com merge sem clobber e backup em `~/.claude/settings.json.bak`, gera a calibração e grava a versão instalada
 
@@ -303,10 +304,41 @@ Antes de embedar, redactor remove tokens/keys comuns (OpenAI/Anthropic/GitHub/Be
 
 ## Limitações conhecidas (MVP)
 
-- Embed cold-start (~30-60s primeira invocação por causa do bge-m3 q8). MCP server pré-carrega no boot.
+- Embed cold-start (~30-60s primeira invocação por causa do bge-m3 q8). MCP server carrega o modelo sob demanda (1ª busca ou push); `MCP_TALKS_PRELOAD=1` pré-carrega no boot.
 - Tool calls (Bash outputs etc.) **não** são embedados — só ficam como nodes `ToolCall` rastreáveis via Cypher.
 - Busca e ranking não usam LLM. LLM (Haiku via `claude -p`) só roda offline, no hook e com opt-in: distilação e vínculo task -> epic.
 - Task que nunca passou por conversa nem plano fica sem epic (e também sem regra pra cruzar).
+
+## Consumo de recursos
+
+Quem pesa na máquina, em ordem de impacto:
+
+| Processo | Quando | RAM | CPU |
+|---|---|---|---|
+| Ingest do hook (`session-ingest.sh`) | a cada SessionStart, termina sozinho | ~1,8GB com o modelo carregado | threads do onnx, durante o embedding |
+| MCP server (1 por sessão aberta) | a sessão toda | centenas de MB com o modelo carregado; leve enquanto ocioso | só nas buscas |
+| Distilação (opt-in) | a cada SessionStart, depois do ingest | uma chamada `claude -p` por sessão | baixa, mas gasta tokens |
+
+O MCP server carrega o bge-m3 sob demanda. Os hooks de push falam com o primeiro server vivo, então só ele fica com o modelo na RAM; as outras sessões ficam leves até alguém chamar `search_memory` nelas. A 1ª busca de uma sessão fria leva alguns segundos.
+
+| Variável (`.env`) | Efeito | Padrão |
+|---|---|---|
+| `EMBED_THREADS=N` | threads do onnx, no hook e no server | hook: metade dos cores; server: todos |
+| `MCP_TALKS_PRELOAD=1` | server carrega o modelo ao subir | desligado |
+| `MCP_TALKS_LOWPRI=0` | desliga nice/ionice no hook de ingest | ligado |
+| `MCP_TALKS_DISTILL=0\|1` | distilação automática (gasta tokens) | desligado |
+| `MCP_TALKS_EPIC_LLM=1` | vínculo task -> epic com Haiku no hook (~2k tokens por sessão que cita epic; sem a linha, segue a distilação) | segue `MCP_TALKS_DISTILL` |
+| `MCP_TALKS_DISTILL_PER_RUN`, `MCP_TALKS_DISTILL_BACKLOG_PER_RUN` | sessões recentes e de backlog destiladas por SessionStart | 5 e 3 |
+| `MCP_TALKS_DISABLE_PUSH=1` | desliga o socket de push (e os ponteiros automáticos) | desligado |
+
+Perfil sugerido pra máquina com pouca RAM ou muitas sessões abertas (ex.: 12 cores, ~14GB):
+
+```bash
+EMBED_THREADS=2
+MCP_TALKS_DISTILL=0
+```
+
+**Instalando via Claude Code ou outro LLM:** antes do primeiro `npm run ingest`, confira `nproc` e `free -h` (ou `sysctl hw.ncpu hw.memsize` no macOS). Com menos de ~16GB de RAM ou menos de 8 cores, grave o perfil acima no `.env` em vez de aceitar os defaults. O 1º ingest é o mais pesado, porque embeda o acervo inteiro.
 
 ## Troubleshooting
 
