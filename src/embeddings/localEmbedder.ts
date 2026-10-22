@@ -22,7 +22,7 @@ let _loading: Promise<FeatureExtractionPipeline> | null = null;
 
 export async function getEmbedder(): Promise<FeatureExtractionPipeline> {
   if (_extractor) return _extractor;
-  // Memoize the in-flight load so a background preload and the first tool call
+  // Memoize the in-flight load so an opt-in preload and the first tool call
   // share one pipeline instead of each loading their own ~1.5GB model.
   if (_loading) return _loading;
   _loading = (async () => {

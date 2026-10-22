@@ -41,10 +41,15 @@ registerProfileResource(server);
 await server.connect(new StdioServerTransport());
 console.error('[mcp] mcp-talks-cc server connected (stdio)');
 
-// Preload the embedder in the background so the first search isn't cold.
-// Must NOT block server.connect above: the bge-m3 cold load is ~30-60s and
-// would stall the MCP initialize handshake, making the client time out.
-void getEmbedder().catch((e) => console.error('[mcp] embedder preload failed:', e));
+// Embedder carrega sob demanda (1ª busca ou 1º push). Cada sessão do Claude Code
+// sobe o próprio server, e os hooks de push só falam com o 1º socket vivo
+// (scripts/push-recall.sh): pré-carregar em todos custava ~450-700MB de RAM por
+// sessão aberta, e empurrava a máquina pro swap. MCP_TALKS_PRELOAD=1 volta ao
+// preload. Nunca bloqueia o server.connect acima: o cold load do bge-m3 leva
+// 30-60s e estouraria o handshake do initialize.
+if (process.env.MCP_TALKS_PRELOAD === '1') {
+  void getEmbedder().catch((e) => console.error('[mcp] embedder preload failed:', e));
+}
 
 // Socket local pros hooks de push (UserPromptSubmit/PostToolUse). Desligável
 // com MCP_TALKS_DISABLE_PUSH=1 (a suite desliga).
