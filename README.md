@@ -316,7 +316,7 @@ Quem pesa na máquina, em ordem de impacto:
 | Processo | Quando | RAM | CPU |
 |---|---|---|---|
 | Ingest do hook (`session-ingest.sh`) | a cada SessionStart, termina sozinho | ~1,8GB com o modelo carregado | threads do onnx, durante o embedding |
-| MCP server (1 por sessão aberta) | a sessão toda | centenas de MB com o modelo carregado; leve enquanto ocioso | só nas buscas |
+| MCP server (1 por sessão aberta) | a sessão toda | com o modelo carregado: ~0,4-0,7GB de RSS no Linux, ~1,3GB de footprint no macOS (conta o comprimido/swap); leve enquanto ocioso | só nas buscas |
 | Distilação (opt-in) | a cada SessionStart, depois do ingest | uma chamada `claude -p` por sessão | baixa, mas gasta tokens |
 
 O MCP server carrega o bge-m3 sob demanda. Os hooks de push falam com o primeiro server vivo, então só ele fica com o modelo na RAM; as outras sessões ficam leves até alguém chamar `search_memory` nelas. A 1ª busca de uma sessão fria leva alguns segundos.
@@ -325,7 +325,7 @@ O MCP server carrega o bge-m3 sob demanda. Os hooks de push falam com o primeiro
 |---|---|---|
 | `EMBED_THREADS=N` | threads do onnx, no hook e no server | hook: metade dos cores; server: todos |
 | `MCP_TALKS_PRELOAD=1` | server carrega o modelo ao subir | desligado |
-| `MCP_TALKS_LOWPRI=0` | desliga nice/ionice no hook de ingest | ligado |
+| `MCP_TALKS_LOWPRI=0` | desliga nice/ionice/taskpolicy no hook de ingest (vale no `.env` ou no ambiente) | ligado |
 | `MCP_TALKS_DISTILL=0\|1` | distilação automática (gasta tokens) | desligado |
 | `MCP_TALKS_EPIC_LLM=1` | vínculo task -> epic com Haiku no hook (~2k tokens por sessão que cita epic; sem a linha, segue a distilação) | segue `MCP_TALKS_DISTILL` |
 | `MCP_TALKS_DISTILL_PER_RUN`, `MCP_TALKS_DISTILL_BACKLOG_PER_RUN` | sessões recentes e de backlog destiladas por SessionStart | 5 e 3 |

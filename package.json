@@ -1,6 +1,6 @@
 {
   "name": "mcp-talks-cc",
-  "version": "0.4.1",
+  "version": "0.4.3",
   "description": "MCP server local que indexa conversas Claude Code (conversas + plans + todos + task memory) em Neo4j com busca vetorial",
   "license": "MIT",
   "type": "module",

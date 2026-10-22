@@ -15,7 +15,7 @@ Sem o Claude: `npm run upgrade` e `npm run upgrade:claude-md -- --dry-run | --ap
 Convenção: **patch** (0.3.x) não tem passo de upgrade e não gera pergunta; o código vale no
 `git pull`. **Minor** (0.x.0) pode ter migração e dispara a pergunta de atualização.
 
-## Não lançado
+## 0.4.3 (2026-10-22)
 
 - MCP server não pré-carrega mais o bge-m3 ao subir: carrega na 1ª busca ou no 1º push. Só o
   server que atende os hooks (1º socket vivo) fica com o modelo na RAM; sessões ociosas ficam

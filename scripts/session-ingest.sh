@@ -8,29 +8,31 @@ set -uo pipefail
 # guarda cada distilação abriria outro ingest (recursão).
 [ "${MCP_TALKS_IN_DISTILL:-}" = "1" ] && exit 0
 
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 # Prioridade baixa pra tudo que este hook roda (npm, node, onnx, claude -p herdam).
 # nice cede CPU pro que você está usando; ionice -c3 (Linux) ou taskpolicy -b
 # (macOS) fazem o mesmo com o disco. Re-exec único: o pid não muda, então o lock
 # abaixo segue valendo. Fail-open: sem nenhuma das ferramentas, roda normal.
-# MCP_TALKS_LOWPRI=0 desliga.
-case "${MCP_TALKS_LOWPRI:-}" in
-  0 | 1) ;;
-  *)
-    LOWPRI=()
-    command -v nice >/dev/null 2>&1 && LOWPRI+=(nice -n 19)
-    if command -v ionice >/dev/null 2>&1 && ionice -c3 true 2>/dev/null; then
-      LOWPRI+=(ionice -c3)
-    elif command -v taskpolicy >/dev/null 2>&1 && taskpolicy -b true 2>/dev/null; then
-      LOWPRI+=(taskpolicy -b)
-    fi
-    if [ "${#LOWPRI[@]}" -gt 0 ]; then
-      export MCP_TALKS_LOWPRI=1
-      exec "${LOWPRI[@]}" bash "${BASH_SOURCE[0]}" "$@"
-    fi
-    ;;
-esac
-
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Ligado por padrão; MCP_TALKS_LOWPRI=0 (no .env ou no ambiente) desliga. O hook
+# não carrega o .env, daí o fallback com sed, como nas outras opções abaixo.
+LOWPRI_ON="${MCP_TALKS_LOWPRI:-}"
+if [ -z "$LOWPRI_ON" ] && [ -f "${PROJECT_DIR}/.env" ]; then
+  LOWPRI_ON="$(sed -nE 's/^MCP_TALKS_LOWPRI=([^[:space:]#]*).*/\1/p' "${PROJECT_DIR}/.env" | tail -1)"
+fi
+if [ "$LOWPRI_ON" != "0" ] && [ -z "${_MCP_TALKS_LOWPRI_DONE:-}" ]; then
+  LOWPRI_CMD=()
+  command -v nice >/dev/null 2>&1 && LOWPRI_CMD+=(nice -n 19)
+  if command -v ionice >/dev/null 2>&1 && ionice -c3 true 2>/dev/null; then
+    LOWPRI_CMD+=(ionice -c3)
+  elif command -v taskpolicy >/dev/null 2>&1 && taskpolicy -b true 2>/dev/null; then
+    LOWPRI_CMD+=(taskpolicy -b)
+  fi
+  if [ "${#LOWPRI_CMD[@]}" -gt 0 ]; then
+    export _MCP_TALKS_LOWPRI_DONE=1
+    exec "${LOWPRI_CMD[@]}" bash "${BASH_SOURCE[0]}" "$@"
+  fi
+fi
 LOG_DIR="${HOME}/.cache/mcp-talks-cc"
 LOG="${LOG_DIR}/ingest.log"
 HEALTH="${LOG_DIR}/health.json"
