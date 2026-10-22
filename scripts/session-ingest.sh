@@ -8,6 +8,28 @@ set -uo pipefail
 # guarda cada distilação abriria outro ingest (recursão).
 [ "${MCP_TALKS_IN_DISTILL:-}" = "1" ] && exit 0
 
+# Prioridade baixa pra tudo que este hook roda (npm, node, onnx, claude -p herdam).
+# nice cede CPU pro que você está usando; ionice -c3 (Linux) ou taskpolicy -b
+# (macOS) fazem o mesmo com o disco. Re-exec único: o pid não muda, então o lock
+# abaixo segue valendo. Fail-open: sem nenhuma das ferramentas, roda normal.
+# MCP_TALKS_LOWPRI=0 desliga.
+case "${MCP_TALKS_LOWPRI:-}" in
+  0 | 1) ;;
+  *)
+    LOWPRI=()
+    command -v nice >/dev/null 2>&1 && LOWPRI+=(nice -n 19)
+    if command -v ionice >/dev/null 2>&1 && ionice -c3 true 2>/dev/null; then
+      LOWPRI+=(ionice -c3)
+    elif command -v taskpolicy >/dev/null 2>&1 && taskpolicy -b true 2>/dev/null; then
+      LOWPRI+=(taskpolicy -b)
+    fi
+    if [ "${#LOWPRI[@]}" -gt 0 ]; then
+      export MCP_TALKS_LOWPRI=1
+      exec "${LOWPRI[@]}" bash "${BASH_SOURCE[0]}" "$@"
+    fi
+    ;;
+esac
+
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="${HOME}/.cache/mcp-talks-cc"
 LOG="${LOG_DIR}/ingest.log"
